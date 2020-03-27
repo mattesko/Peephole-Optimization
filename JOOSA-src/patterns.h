@@ -8,6 +8,17 @@
  * use of this software.
  *
  * email: hendren@cs.mcgill.ca, mis@brics.dk
+ * 
+ * Documentation follows this convention:
+ * isntruction_to_replace_1
+ * instruction_to_replace_2
+ * ...
+ * instruction_to_replace_N
+ * ------>
+ * instruction_to_replace_with_1
+ * instruction_to_replace_with_2
+ * ...
+ * instruction_to_replace_with_M
  */
 
 /* iload x        iload x        iload x

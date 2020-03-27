@@ -45,6 +45,59 @@ int simplify_multiplication_right(CODE **c)
   return 0;
 }
 
+/* ldc 0          ldc 1          ldc 2
+ * iload x        iload x        iload x
+ * imul           imul           imul
+ * ------>        ------>        ------>
+ * ldc 0          iload x        iload x
+ *                               dup
+ *                               iadd
+ */
+
+int simplify_multiplication_left(CODE **c)
+{ int x,k;
+  if (is_ldc_int(*c, &k) &&
+      is_iload(next(*c), &x) &&
+      is_imul(next(next(*c)))) 
+    {
+      if (k==0) return replace(c,3,makeCODEldc_int(0, NULL));
+      else if (k==1) return replace(c,3,makeCODEiload(x, NULL));
+      else if (k==2) return replace(c,3,makeCODEiload(x,
+                                        makeCODEdup(
+                                        makeCODEiadd(NULL))));
+      return 0;
+    }
+  return 0;
+}
+
+/**
+ * iload x        ldc y
+ * ldc 1          ldc 1
+ * idiv           idiv
+ * -------->      -------->
+ * iload x        ldc y
+**/
+int simplify_division_by_one_right(CODE **c)
+{
+  int x, y, k;
+  if (is_iload(*c, &x) &&
+      is_ldc_int(next(*c), &k) &&
+      is_idiv(next(next(*c))))
+      {
+        if (k==1) return replace(c, 3, makeCODEiload(x, NULL));
+        return 0;
+      }
+  else if (is_ldc_int(*c, &y) &&
+           is_ldc_int(next(*c), &k) &&
+           is_idiv(next(next(*c))))
+           {
+             if (k==1) return replace(c, 3, makeCODEldc_int(y, NULL));
+             return 0;
+           }
+  return 0;
+}
+
+
 /* dup
  * astore x
  * pop
@@ -58,6 +111,24 @@ int simplify_astore(CODE **c)
       is_pop(next(next(*c)))) {
      return replace(c,3,makeCODEastore(x,NULL));
   }
+  return 0;
+}
+
+/**
+ * dup
+ * istore x
+ * pop
+ * -------->
+ * istore x
+**/
+int simplify_istore(CODE **c)
+{
+  int x;
+  if (is_dup(*c) &&
+      is_istore(next(*c), &x) &&
+      is_pop(next(next(*c)))) {
+        return replace(c, 3, makeCODEistore(x, NULL));
+      }
   return 0;
 }
 
@@ -76,6 +147,54 @@ int positive_increment(CODE **c)
       is_istore(next(next(next(*c))),&y) &&
       x==y && 0<=k && k<=127) {
      return replace(c,4,makeCODEiinc(x,k,NULL));
+  }
+  return 0;
+}
+
+/* iload x
+ * ldc k   (0<=k<=127)
+ * isub
+ * istore x
+ * --------->
+ * iinc x k
+ */ 
+int negative_increment(CODE **c) 
+{
+  int x,y,k;
+  if (is_iload(*c,&x) &&
+      is_ldc_int(next(*c),&k) &&
+      is_isub(next(next(*c))) &&
+      is_istore(next(next(next(*c))),&y) &&
+      x==y && 0<=k && k<=127) {
+     return replace(c,4,makeCODEiinc(x,-k,NULL));
+  }
+  return 0;
+}
+
+/**
+ * iinc x 0
+ * --------->
+ * (empty)
+ */ 
+int remove_zero_increment(CODE **c)
+{
+  int x, amount;
+  if (is_iinc(*c, &x, &amount) && amount==0) {
+    return kill_line(c);
+  }
+  return 0;
+}
+
+/**
+ * label: (empty)
+ * --------->
+ * (empty)
+ */ 
+int remove_dead_label(CODE **c)
+{
+  int label;
+  if (is_label(*c, &label) && deadlabel(label)) {
+    return kill_line(c);
   }
   return 0;
 }
@@ -103,9 +222,21 @@ int simplify_goto_goto(CODE **c)
   }
   return 0;
 }
+
+/**
+ *  Add patterns here so they can be used to optimize code
+ */
 void init_patterns(void) {
-	ADD_PATTERN(simplify_multiplication_right);
-	ADD_PATTERN(simplify_astore);
+  /* Please try to keep these in alphabetical order, so it's easier to find their names during benchmarks*/
+	ADD_PATTERN(negative_increment);
 	ADD_PATTERN(positive_increment);
+	ADD_PATTERN(simplify_astore);
+	ADD_PATTERN(simplify_division_by_one_right);
 	ADD_PATTERN(simplify_goto_goto);
+	ADD_PATTERN(simplify_istore);
+	ADD_PATTERN(simplify_multiplication_left);
+	ADD_PATTERN(simplify_multiplication_right);
+  ADD_PATTERN(remove_dead_label);
+  ADD_PATTERN(remove_zero_increment);
+
 }

@@ -122,4 +122,4 @@ fi
 echo -e "\e[42m\033[1mNormal:\033[0m\e[42m $NORMAL\e[49m"
 echo -e "\e[42m\033[1mOptimized:\033[0m\e[42m $OPT\e[49m"
 PERCENT_DECREASE=`echo "scale=2; 100 - 100 * $OPT / $NORMAL" | bc`
-echo -e "\e[44m\033[1mDecrease:\033[0m\e[44m $PERCENT_DECREASE%\e[49m"
+echo -e "\e[44m\033[1mDecrease:\033[0m\e[44m $PERCENT_DECREASE% ($(($NORMAL - $OPT)) lines)\e[49m"

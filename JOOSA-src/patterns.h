@@ -132,6 +132,133 @@ int simplify_istore(CODE **c)
   return 0;
 }
 
+/* goto L1
+ * ...
+ * L1:
+ * goto L2
+ * ...
+ * L2:
+ * --------->
+ * goto L2
+ * ...
+ * L1:    (reference count reduced by 1)
+ * goto L2
+ * ...
+ * L2:    (reference count increased by 1)  
+ */
+int simplify_goto_goto(CODE **c)
+{ int l1,l2;
+  if (is_goto(*c,&l1) && is_goto(next(destination(l1)),&l2) && l1>l2) {
+     droplabel(l1);
+     copylabel(l2);
+     return replace(c,1,makeCODEgoto(l2,NULL));
+  }
+  return 0;
+}
+
+/**
+ * if_cmp true_1  (if_cmp is some conditional instruction)
+ * iconst_0
+ * goto stop_2
+ * true_1:
+ * iconst_1
+ * stop_2:
+ * ifeq stop_0
+ * ...
+ * stop_0:
+ * --------->
+ * !if_cmp stop_0
+ * ...
+ * stop_0:
+ */
+int simplify_if_cmp(CODE **c)
+{
+  int true_l1, stop_l1, stop_l2, l4;
+  int c1, c2;
+
+  if (is_ifeq(*c, &true_l1) || is_ifne(*c, &true_l1) || is_ifnull(*c, &true_l1) || is_ifnonnull(*c, &true_l1) ||
+    is_if_acmpeq(*c, &true_l1) || is_if_acmpne(*c, &true_l1) || is_if_icmpeq(*c, &true_l1) || is_if_icmpge(*c, &true_l1) || 
+    is_if_icmpgt(*c, &true_l1) || is_if_icmple(*c, &true_l1) || is_if_icmplt(*c, &true_l1) || is_if_icmpne(*c, &true_l1)
+  )
+  {
+    if (
+        /* iconst_0
+         * goto stop_2
+         * ...
+         * ifeq stop_0:
+        */
+        is_ldc_int(next(*c), &c1) && c1 == 0 && 
+        is_goto(next(next(*c)), &stop_l1) && 
+        is_ifeq(next(destination(stop_l1)), &stop_l2) &&
+
+        /* > true_1:
+         * iconst_1
+         * stop_2:
+        */
+        is_ldc_int(next(destination(true_l1)), &c2) && c2 == 1 &&
+        is_label(next(next(destination(true_l1))), &l4) && l4 == stop_l1)
+        {
+          if(!(uniquelabel(true_l1) && uniquelabel(stop_l1)))
+          {
+            return 0;
+          }
+
+          /* The labels are no longer necessary since we effectively skip them*/
+          droplabel(true_l1);
+          droplabel(stop_l1);
+          
+          if(is_ifeq(*c, &true_l1))
+          {
+            return replace(c, 7, makeCODEifne(stop_l2, NULL));
+          }
+          else if(is_ifne(*c, &true_l1))
+          {
+            return replace(c, 7, makeCODEifeq(stop_l2, NULL));
+          }
+          else if(is_if_acmpeq(*c, &true_l1))
+          {
+            return replace(c, 7, makeCODEif_acmpne(stop_l2, NULL));
+          }
+          else if(is_if_acmpne(*c,&true_l1))
+          {
+            return replace(c, 7, makeCODEif_acmpeq(stop_l2, NULL));
+          }
+          else if(is_if_icmpeq(*c, &true_l1))
+          {
+            return replace(c, 7, makeCODEif_icmpne(stop_l2, NULL));
+          }
+          else if(is_if_icmpge(*c, &true_l1))
+          {
+            return replace(c, 7, makeCODEif_icmplt(stop_l2, NULL));
+          }
+          else if(is_if_icmpgt(*c, &true_l1))
+          {
+            return replace(c, 7, makeCODEif_icmple(stop_l2, NULL));
+          }
+          else if(is_if_icmple(*c, &true_l1))
+          {
+            return replace(c, 7, makeCODEif_icmpgt(stop_l2, NULL));
+          }
+          else if(is_if_icmplt(*c, &true_l1))
+          {
+            return replace(c, 7, makeCODEif_icmpge(stop_l2, NULL));
+          }
+          else if(is_if_icmpne(*c, &true_l1))
+          {
+            return replace(c, 7, makeCODEif_icmpeq(stop_l2, NULL));
+          }
+          else if(is_ifnonnull(*c, &true_l1))
+          {
+            return replace(c, 7, makeCODEifnull(stop_l2, NULL));
+          }
+          else{
+            return replace(c, 7, makeCODEifnonnull(stop_l2, NULL));
+          }
+        }
+  }
+  return 0;
+}
+
 /* iload x
  * ldc k   (0<=k<=127)
  * iadd
@@ -199,26 +326,16 @@ int remove_dead_label(CODE **c)
   return 0;
 }
 
-/* goto L1
- * ...
- * L1:
- * goto L2
- * ...
- * L2:
+/**
+ * nop
  * --------->
- * goto L2
- * ...
- * L1:    (reference count reduced by 1)
- * goto L2
- * ...
- * L2:    (reference count increased by 1)  
+ * (empty)
  */
-int simplify_goto_goto(CODE **c)
-{ int l1,l2;
-  if (is_goto(*c,&l1) && is_goto(next(destination(l1)),&l2) && l1>l2) {
-     droplabel(l1);
-     copylabel(l2);
-     return replace(c,1,makeCODEgoto(l2,NULL));
+int remove_nop(CODE **c)
+{
+  if (is_nop(*c) && next(*c) != NULL)
+  {
+    return kill_line(c);
   }
   return 0;
 }
@@ -233,10 +350,12 @@ void init_patterns(void) {
 	ADD_PATTERN(simplify_astore);
 	ADD_PATTERN(simplify_division_by_one_right);
 	ADD_PATTERN(simplify_goto_goto);
+	ADD_PATTERN(simplify_if_cmp);
 	ADD_PATTERN(simplify_istore);
 	ADD_PATTERN(simplify_multiplication_left);
 	ADD_PATTERN(simplify_multiplication_right);
   ADD_PATTERN(remove_dead_label);
+  ADD_PATTERN(remove_nop);
   ADD_PATTERN(remove_zero_increment);
 
 }
